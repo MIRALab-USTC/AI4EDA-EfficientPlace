@@ -1,0 +1,80 @@
+# conf/benchmark/adaptec1
+
+benchmark: adaptec1
+
+grid: 256
+num_macros_to_place: 128
+greedy_coef_init: 3.0
+
+
+tb_dir: ./workspace/${benchmark}/${now:%m-%d}/${now:%H:%M:%S}-${job_name}
+model_dir: ./workspace/${benchmark}/${now:%m-%d}/${now:%H:%M:%S}-${job_name}/model
+sol_dir: ./workspace/${benchmark}/${now:%m-%d}/${now:%H:%M:%S}-${job_name}/sol
+
+env:
+  _target_: src.Environment
+  benchmark: ${benchmark}
+  benchmark_dir: ./benchmarks/ispd2005/${benchmark}
+  reward_scale: 1000.0
+  wire_mask_scale: 10000.0
+  num_macros_to_place: 128
+  grid: ${grid}
+  rank_mode: 1
+
+agent:
+  _target_: src.Agent
+  max_grad_norm: 0.5
+  clip_epsilon: 0.2
+  lamda: 0.98
+  entropy_coef: 0.001
+  lr_actor: 0.0004
+  lr_critic: 0.001
+  actor_lr_anneal_rate: 0.9999
+  critic_lr_anneal_rate: 0.9999
+  num_macros_to_place: ${num_macros_to_place}
+  grid: ${grid}
+  greedy_coef_init: ${greedy_coef_init}
+  gamma: 1.0
+
+trainer:
+  _target_: main.Trainer
+  num_macros_to_place: ${num_macros_to_place}
+  num_loops: 1000
+  num_episodes_in_loop: 5
+  max_episode: 2000
+  update_batch_size: 128
+  num_update_epochs: 10
+  solution_pool_size: 5
+  update_frontiers_freq: 2
+  update_frontiers_begin: 200
+  alpha: 0.1
+  model_dir: ${model_dir}
+  sol_dir: ${sol_dir}
+
+
+seed: 7
+cuda: 0
+job_name: #grid_${model.grid}_rank_${model.rank_mode}_lr_${model.agent.lr_actor}_s_${seed}
+
+hydra:
+  run:
+    dir: ./workspace/${benchmark}/${now:%m-%d}/${now:%H:%M:%S}-${job_name}
+  job_logging:
+    formatters:
+      simple:
+        format: '[%(asctime)s][%(levelname)s] - %(message)s'
+        datefmt: '%Y-%m-%d %H:%M:%S'
+    handlers:
+      console:
+        class: logging.StreamHandler
+        formatter: simple
+        stream: ext://sys.stdout
+      file:
+        class: logging.FileHandler
+        formatter: simple
+        filename: ${hydra.runtime.output_dir}/run.log
+    root:
+      level: DEBUG
+      handlers: [console, file]
+
+    disable_existing_loggers: false

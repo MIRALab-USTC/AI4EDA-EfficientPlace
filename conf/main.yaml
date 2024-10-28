@@ -1,0 +1,4 @@
+# conf/main
+defaults:
+ - _self_
+ - benchmark@: adaptec1
