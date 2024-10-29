@@ -7,9 +7,8 @@ from omegaconf import DictConfig
 import logging
 import treelib
 from tensorboardX import SummaryWriter
-from utils import set_seed, set_device
+import random
 from src import Agent, Environment, ReplayBuffer
-
 
 class SolutionPool:
     def __init__(self, pool_size: int, alpha: float) -> None:
@@ -70,8 +69,7 @@ class SolutionPool:
                     }
                 )
 
-    @property
-    def get_solution(self):
+    def get_best_solution(self):
         return self.sols[0]["placement"], self.sols[0]["solution"], self.sols[0]["hpwl"]
 
     @property
@@ -85,7 +83,7 @@ class SolutionPool:
         front_scores = sorted(
             front_scores, key=lambda x: self.tree.get_node(str(x[1])).data["hpwl"])
         assert len(front_scores) <= self.pool_size
- 
+
         self.frontiers_cand = []
         for front in self.frontiers:
             for chid in self.tree.children(str(front)):
@@ -123,12 +121,16 @@ class SolutionPool:
 
 class Trainer:
 
-    def __init__(self, num_loops, num_update_epochs, update_batch_size, num_episodes_in_loop, num_macros_to_place, solution_pool_size, alpha, update_frontiers_begin, update_frontiers_freq, model_dir, sol_dir, max_episode):
+    def __init__(self, num_loops, num_episodes_in_loop, num_update_epochs, update_batch_size,
+                 num_macros_to_place, solution_pool_size, alpha, update_frontiers_begin, update_frontiers_freq,
+                 model_dir, solution_dir
+                 ):
+
         self.num_loops = num_loops
+        self.num_episodes_in_loop = num_episodes_in_loop
 
         self.num_update_epochs = num_update_epochs
         self.update_batch_size = update_batch_size
-        self.num_episodes_in_loop = num_episodes_in_loop
         self.num_macros_to_place = num_macros_to_place
 
         self.buffer_capacity = num_episodes_in_loop * num_macros_to_place
@@ -142,7 +144,7 @@ class Trainer:
         self.model_dir = model_dir
         os.makedirs(self.model_dir, exist_ok=True)
 
-        self.sol_dir = sol_dir
+        self.solution_dir = solution_dir
 
     def setup_tb_writer(self, tb_writer: SummaryWriter):
         self.tb_writer = tb_writer
@@ -176,14 +178,12 @@ class Trainer:
                     "episodes/depth_max", self.solution_pool.depth_min_max[1], global_episode)
                 global_episode += 1
 
-            agent.update(replay_buffer,
-                         self.num_update_epochs,
-                         self.update_batch_size)
+            agent.update(replay_buffer, self.num_update_epochs, self.update_batch_size)
 
             if global_episode >= self.update_frontiers_begin and loop % self.update_frontiers_freq == 0:
                 self.solution_pool.update_frontiers()
 
-            placement, sol, hpwl = self.solution_pool.get_solution
+            placement, sol, hpwl = self.solution_pool.get_best_solution()
 
             logging.info(f"Current best HPWL = {hpwl}.")
             torch.save(agent.actor_net.state_dict(),
@@ -191,9 +191,8 @@ class Trainer:
             torch.save(agent.critic_net.state_dict(),
                        os.path.join(self.model_dir, "critic_net.pth"))
 
-            sol_dir = self.sol_dir
-            os.makedirs(sol_dir, exist_ok=True)
-            with open(os.path.join(sol_dir, f"best_placement_{hpwl}.pkl"), 'wb') as f:
+            os.makedirs(self.solution_dir, exist_ok=True)
+            with open(os.path.join(self.solution_dir, f"best_placement_{hpwl}.pkl"), 'wb') as f:
                 pickle.dump(placement, f)
 
     def run_episode(self, env: Environment, agent: Agent, replay_buffer: ReplayBuffer, global_episode: int):
@@ -204,13 +203,12 @@ class Trainer:
         done = False
 
         # randomly select a frontier to start an episode from
-        sid, sol = self.solution_pool.sample()
+        sol_id, sol = self.solution_pool.sample()
 
         while True:
             if t < len(sol):
                 # select the action from the solution
-                a = sol[t]
-                a_logp = 0.0
+                a, a_logp = sol[t], 0.0
             else:
                 a, a_logp = agent.select_action(s, t, global_episode)
 
@@ -218,7 +216,14 @@ class Trainer:
             placement.append(a)
             hpwl += info["delta_hpwl"]
 
-            if done and env.num_macros > self.num_macros_to_place:
+            if not done:
+                if t >= len(sol):
+                    replay_buffer.store(s, t, a, a_logp, r, s_, t + 1, 0.0)
+                solution.append(a)
+                score += r
+
+                t += 1
+            elif env.num_macros > self.num_macros_to_place:
                 # if the episode is done, place the remaining macros greedily
                 s_done, s__done, a_done = s, s_, a
                 s = s_
@@ -229,36 +234,45 @@ class Trainer:
                     hpwl += info["delta_hpwl"]
                     r += r_
                     if i == env.num_macros - self.num_macros_to_place - 1:
-                        replay_buffer.store(s_done, t, a_done, a_logp, r, s__done, t + 1, 1.0)
+                        replay_buffer.store(
+                            s_done, t, a_done, a_logp, r, s__done, t + 1, 1.0)
                         solution.append(a_done)
                     s = s_
                 score += r
                 break
-            else:
-                if t >= len(sol):
-                    replay_buffer.store(s, t, a, a_logp, r, s_, t + 1, 0.0)
-                solution.append(a)
-                score += r
                 
-                t += 1
             s = s_
 
-        return hpwl * env.ratio / 1e5, sid, solution, placement
-  
+        return hpwl * env.ratio / 1e5, sol_id, solution, placement
+
+
 @hydra.main(version_base=None, config_path="conf", config_name="main")
 def main(config: DictConfig):
-    set_seed(config.seed)
-    device = set_device(config.cuda)
+    # set random seed
+    random.seed(config.seed)
+    np.random.seed(config.seed)
+    torch.manual_seed(config.seed)
+    torch.cuda.manual_seed(config.seed)
+    
+    # set device
+    if(torch.cuda.is_available()): 
+        device = torch.device(f'cuda:{config.cuda}')
+        torch.cuda.empty_cache()
+    else:
+        device = torch.device('cpu')
+    
+    # set up tensorboard writer
     tb_writer = SummaryWriter(config.tb_dir)
 
+    # instantiate agent, environment and trainer
     agent: Agent = hydra.utils.instantiate(config.agent)
     agent.set_up(device, tb_writer)
     env: Environment = hydra.utils.instantiate(config.env)
     trainer: Trainer = hydra.utils.instantiate(config.trainer)
     trainer.setup_tb_writer(tb_writer)
 
+    # train the model
     trainer.train(agent, env)
-
 
 if __name__ == '__main__':
     main()
