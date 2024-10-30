@@ -2,3 +2,29 @@
 defaults:
  - _self_
  - benchmark@: adaptec1
+
+seed: 0
+cuda: 0
+
+hydra:
+  run:
+    dir: ./workspace/${benchmark}/${now:%m-%d}/${now:%H:%M:%S}
+  job_logging:
+    formatters:
+      simple:
+        format: '[%(asctime)s][%(levelname)s] - %(message)s'
+        datefmt: '%Y-%m-%d %H:%M:%S'
+    handlers:
+      console:
+        class: logging.StreamHandler
+        formatter: simple
+        stream: ext://sys.stdout
+      file:
+        class: logging.FileHandler
+        formatter: simple
+        filename: ${hydra.runtime.output_dir}/run.log
+    root:
+      level: DEBUG
+      handlers: [console, file]
+
+    disable_existing_loggers: false

@@ -1,42 +1,22 @@
-import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2"
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-import torch.optim as optim
-from torch.distributions import Categorical
-from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
-import torchvision
-from typing import Any
-from tensorboardX import SummaryWriter
-from typing import Any, Tuple
-from torch import Tensor
-import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2"
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.distributions import Categorical, Distribution
 from torch.utils.data.sampler import BatchSampler, SubsetRandomSampler
-import torchvision
-import numpy as np
-from typing import Any
-# from common import *
 from tensorboardX import SummaryWriter
 from typing import Any, Tuple
 from torch import Tensor
-from .replay_buffer import ReplayBuffer
+from src.replay_buffer import ReplayBuffer
 
 class Actor(nn.Module):
-    def __init__(self, num_macros_to_place: int, grid: int, greedy_coef_init):
+    def __init__(self, num_macros_to_place: int, grid: int):
         super().__init__()
 
         self.grid = grid
 
         self.conv_1 = nn.Sequential(
-            nn.AvgPool2d(kernel_size=int(grid/128), stride=int(grid/128)),
+            nn.AvgPool2d(kernel_size=int(grid / 128), stride=int(grid / 128)),
             nn.Conv2d(3, 8, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
         )
@@ -85,124 +65,16 @@ class Actor(nn.Module):
         )
 
         self.conv_8 = nn.Sequential(
-            nn.Upsample(scale_factor=int(grid/128), mode='bilinear', align_corners=True),
+            nn.Upsample(scale_factor=int(grid / 128), mode='bilinear', align_corners=True),
             nn.Conv2d(8, 1, kernel_size=1, stride=1),
         )
-
-        # if grid == 128:
-        #     self.conv_1 = nn.Sequential(
-        #         nn.Conv2d(3, 8, kernel_size=3, stride=1, padding=1),
-        #         nn.ReLU(),
-        #     )
-        #     self.pool_1 = nn.MaxPool2d(kernel_size=2, stride=2)
-
-        #     self.conv_2 = nn.Sequential(
-        #         nn.Conv2d(8, 16, kernel_size=3, stride=1, padding=1),
-        #         nn.ReLU(),
-        #     )
-        #     self.pool_2 = nn.MaxPool2d(kernel_size=4, stride=4)
-
-        #     self.conv_3 = nn.Sequential(
-        #         nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
-        #         nn.ReLU(),
-        #     )
-        #     self.pool_3 = nn.MaxPool2d(kernel_size=4, stride=4)
-
-        #     self.conv_4 = nn.Sequential(
-        #         nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1),
-        #         nn.ReLU(),
-        #     )
-
-        #     self.fc = nn.Sequential(
-        #         nn.Linear(4 * 4 * 32 + 32, 512),
-        #         nn.ReLU(),
-        #         nn.Linear(512, 4 * 4 * 32),
-        #         nn.ReLU(),
-        #     )
-
-        #     self.up_5 = nn.Upsample(scale_factor=4, mode='bilinear', align_corners=True)
-        #     self.conv_5 = nn.Sequential(
-        #         nn.Conv2d(64, 16, kernel_size=3, stride=1, padding=1),
-        #         nn.ReLU(),
-        #     )
-
-        #     self.up_6 = nn.Upsample(scale_factor=4, mode='bilinear', align_corners=True)
-        #     self.conv_6 = nn.Sequential(
-        #         nn.Conv2d(32, 8, kernel_size=3, stride=1, padding=1),
-        #         nn.ReLU(),
-        #     )
-
-        #     self.up_7 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        #     self.conv_7 = nn.Sequential(
-        #         nn.Conv2d(16, 8, kernel_size=3, stride=1, padding=1),
-        #         nn.ReLU(),
-        #     )
-
-        #     self.conv_8 = nn.Sequential(
-        #         nn.Conv2d(8, 1, kernel_size=1, stride=1),
-        #     )
-
-        # if grid == 512:
-        #     self.conv_1 = nn.Sequential(
-        #         nn.AvgPool2d(kernel_size=4, stride=4),
-        #         nn.Conv2d(3, 8, kernel_size=3, stride=1, padding=1),
-        #         nn.ReLU(),
-        #     )
-        #     self.pool_1 = nn.MaxPool2d(kernel_size=2, stride=2)
-
-        #     self.conv_2 = nn.Sequential(
-        #         nn.Conv2d(8, 16, kernel_size=3, stride=1, padding=1),
-        #         nn.ReLU(),
-        #     )
-        #     self.pool_2 = nn.MaxPool2d(kernel_size=4, stride=4)
-
-        #     self.conv_3 = nn.Sequential(
-        #         nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
-        #         nn.ReLU(),
-        #     )
-        #     self.pool_3 = nn.MaxPool2d(kernel_size=4, stride=4)
-
-        #     self.conv_4 = nn.Sequential(
-        #         nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1),
-        #         nn.ReLU(),
-        #     )
-
-        #     self.fc = nn.Sequential(
-        #         nn.Linear(4 * 4 * 32 + 32, 512),
-        #         nn.ReLU(),
-        #         nn.Linear(512, 4 * 4 * 32),
-        #         nn.ReLU(),
-        #     )
-
-        #     self.up_5 = nn.Upsample(scale_factor=4, mode='bilinear', align_corners=True)
-        #     self.conv_5 = nn.Sequential(
-        #         nn.Conv2d(64, 16, kernel_size=3, stride=1, padding=1),
-        #         nn.ReLU(),
-        #     )
-
-        #     self.up_6 = nn.Upsample(scale_factor=4, mode='bilinear', align_corners=True)
-        #     self.conv_6 = nn.Sequential(
-        #         nn.Conv2d(32, 8, kernel_size=3, stride=1, padding=1),
-        #         nn.ReLU(),
-        #     )
-
-        #     self.up_7 = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
-        #     self.conv_7 = nn.Sequential(
-        #         nn.Conv2d(16, 8, kernel_size=3, stride=1, padding=1),
-        #         nn.ReLU(),
-        #     )
-
-        #     self.conv_8 = nn.Sequential(
-        #         nn.Upsample(scale_factor=4, mode='bilinear', align_corners=True),
-        #         nn.Conv2d(8, 1, kernel_size=1, stride=1),
-        #     )
 
         self.time_embedding = nn.Embedding(num_macros_to_place, 32)
     
     def __call__(self, s, t, *args: Any, **kwds: Any) -> Tuple[Distribution, Tensor, Tensor]:
         logits = self.forward(s, t)
-        distr, pi_distr, action_distr,pi_distr_nomask = self.get_distr(logits, position_mask=kwds['position_mask'], wire_mask=kwds['wire_mask'])
-        return distr, pi_distr, action_distr,pi_distr_nomask
+        distr, pi_distr, action_distr, pi_distr_nomask = self.get_distr(logits, position_mask=kwds['position_mask'], wire_mask=kwds['wire_mask'])
+        return distr, pi_distr, action_distr, pi_distr_nomask
 
     def forward(self, s, t):   # [B, 3, 256, 256]
         
@@ -216,7 +88,6 @@ class Actor(nn.Module):
         feature_3_pool = self.pool_3(feature_3) # [B, 32, 4, 4]
 
         feature_4 = self.conv_4(feature_3_pool) # [B, 32, 4, 4]
-        # feature_4_pool = self.pool_4(feature_4) # [B, 32, 2, 2]
 
         time_embedding = self.time_embedding(t) # [B, 32]
         feature = torch.cat([torch.reshape(feature_4, [-1, 4 * 4 * 32]), time_embedding], dim=-1) # [B, 544]
@@ -236,9 +107,9 @@ class Actor(nn.Module):
         return torch.reshape(feature_8, [-1, self.grid * self.grid])
 
     def get_distr(self,
-            logits: Tensor,
-            position_mask: Tensor, wire_mask: Tensor
-        ):
+        logits: Tensor,
+        position_mask: Tensor, wire_mask: Tensor
+    ):
 
         mask = torch.where(position_mask > 0.5, torch.inf, wire_mask).reshape([-1, self.grid * self.grid])
         wire_min = mask.min(dim=-1, keepdim=True)[0]
@@ -256,47 +127,15 @@ class Actor(nn.Module):
         action_distr = greedy_distr
         distr = Categorical(action_distr)
 
-        return distr, pi_distr, action_distr,pi_distr_no_mask
+        return distr, pi_distr, action_distr, pi_distr_no_mask
 
 
 class Critic(nn.Module):
     def __init__(self, num_macros_to_place, grid):
         super().__init__()
 
-        # self.encoder = encoder
-        # if grid == 128:
-        #     self.conv_1 = nn.Sequential(
-        #         nn.Conv2d(3, 8, kernel_size=3, stride=1, padding=1),
-        #         nn.GELU(),
-        #     )
-        #     self.pool_1 = nn.MaxPool2d(kernel_size=2, stride=2)
-
-        #     self.conv_2 = nn.Sequential(
-        #         nn.Conv2d(8, 16, kernel_size=3, stride=1, padding=1),
-        #         nn.GELU(),
-        #     )
-        #     self.pool_2 = nn.MaxPool2d(kernel_size=4, stride=4)
-
-        #     self.conv_3 = nn.Sequential(
-        #         nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=1),
-        #         nn.GELU(),
-        #     )
-        #     self.pool_3 = nn.MaxPool2d(kernel_size=4, stride=4)
-
-        #     self.conv_4 = nn.Sequential(
-        #         nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1),
-        #         nn.GELU(),
-        #     )
-
-        #     self.fc1 = nn.Sequential(
-        #         nn.Linear(4 * 4 * 32 + 32, 512),
-        #         nn.Tanh(),
-        #         nn.Linear(512, 512),
-        #     )
-        
-        # if grid == 512:
         self.conv_1 = nn.Sequential(
-            nn.AvgPool2d(kernel_size=int(grid/128), stride=int(grid/128)),
+            nn.AvgPool2d(kernel_size=int(grid / 128), stride=int(grid / 128)),
             nn.Conv2d(3, 8, kernel_size=3, stride=1, padding=1),
             nn.GELU(),
         )
@@ -327,7 +166,6 @@ class Critic(nn.Module):
 
         self.time_embedding = nn.Embedding(num_macros_to_place + 1, 32)
 
-
         self.fc2 = nn.Sequential(
             nn.Linear(512, 512),
             nn.Tanh(),
@@ -340,7 +178,6 @@ class Critic(nn.Module):
         return self.forward(*args, **kwds)
     
     def forward(self, s: Tensor, t: Tensor):   # [B, 3, 128, 128]
-        # feature = self.encoder(s, t) # [B, 544]
 
         feature_1 = self.conv_1(s)  # [B, 8, 256, 256]
         feature_1_pool = self.pool_1(feature_1) # [B, 8, 64, 64]
@@ -364,22 +201,21 @@ class Critic(nn.Module):
 
 class Agent:
     def __init__(self,
-            max_grad_norm,
-            clip_epsilon,
-            entropy_coef,
-            lr_actor,
-            lr_critic,
-            actor_lr_anneal_rate,
-            critic_lr_anneal_rate,
-            num_macros_to_place,
-            greedy_coef_init,
-            grid,
-            lamda,
-            gamma=0.99,
-        ):
+        max_grad_norm,
+        clip_epsilon,
+        entropy_coef,
+        lr_actor,
+        lr_critic,
+        actor_lr_anneal_rate,
+        critic_lr_anneal_rate,
+        num_macros_to_place,
+        grid,
+        lamda,
+        gamma=0.99,
+    ):
         super().__init__()
 
-        self.actor_net = Actor(num_macros_to_place, grid, greedy_coef_init)
+        self.actor_net = Actor(num_macros_to_place, grid)
         self.critic_net = Critic(num_macros_to_place, grid)
 
         self.actor_optimizer = torch.optim.Adam(self.actor_net.parameters(), lr_actor)
@@ -409,7 +245,7 @@ class Agent:
         self.actor_net.grid_points = self.grid_points
     
     @torch.no_grad()
-    def select_action(self, state: Tensor, time_step:int, global_episode: int = 0):
+    def select_action(self, state: Tensor, time_step:int):
         
         state = state.unsqueeze(0).to(self.device)
         canvas = state[:,0]
@@ -418,32 +254,9 @@ class Agent:
         time_step = torch.LongTensor([time_step]).to(self.device)
 
         self.actor_net.eval()
-        distr, pi_prob, a_prob,pi_prob_nomask = self.actor_net(state, time_step, position_mask=position_mask, wire_mask=wire_mask)
+        distr, pi_prob, a_prob, pi_prob_nomask = self.actor_net(state, time_step, position_mask=position_mask, wire_mask=wire_mask)
         action = distr.sample()
         action_log_prob = distr.log_prob(action.squeeze()) #a_prob.log().flatten()[action]
-
-        grid = self.grid
-        if time_step == 0:
-            self.tb_writer.add_image('fig_0/policy_distr', torchvision.utils.make_grid(pi_prob.reshape([1, grid, grid]).flip(1), normalize=True), global_episode)
-            self.tb_writer.add_image('fig_0/action_distr', torchvision.utils.make_grid(a_prob.reshape([1, grid, grid]).flip(1), normalize=True), global_episode)
-        if time_step == 3:
-            self.tb_writer.add_image('fig_3/policy_distr', torchvision.utils.make_grid(pi_prob.reshape([1, grid, grid]).flip(1), normalize=True), global_episode)
-            self.tb_writer.add_image('fig_3/policy_distr_nomask', torchvision.utils.make_grid(pi_prob_nomask.reshape([1, grid, grid]).flip(1), normalize=True), global_episode)
-            self.tb_writer.add_image('fig_3/canvas', torchvision.utils.make_grid(canvas.reshape([1, grid, grid]).flip(1), normalize=True), global_episode)
-            self.tb_writer.add_image('fig_3/wire_mask', torchvision.utils.make_grid(wire_mask.reshape([1, grid, grid]).flip(1), normalize=True), global_episode)
-            self.tb_writer.add_image('fig_3/action_distr', torchvision.utils.make_grid(a_prob.reshape([1, grid, grid]).flip(1), normalize=True), global_episode)
-        if time_step == 10:
-            self.tb_writer.add_image('fig_10/policy_distr', torchvision.utils.make_grid(pi_prob.reshape([1, grid, grid]).flip(1), normalize=True), global_episode)
-            self.tb_writer.add_image('fig_10/policy_distr_nomask', torchvision.utils.make_grid(pi_prob_nomask.reshape([1, grid, grid]).flip(1), normalize=True), global_episode)
-            self.tb_writer.add_image('fig_10/canvas', torchvision.utils.make_grid(canvas.reshape([1, grid, grid]).flip(1), normalize=True), global_episode)
-            self.tb_writer.add_image('fig_10/wire_mask', torchvision.utils.make_grid(wire_mask.reshape([1, grid, grid]).flip(1), normalize=True), global_episode)
-            self.tb_writer.add_image('fig_10/action_distr', torchvision.utils.make_grid(a_prob.reshape([1, grid, grid]).flip(1), normalize=True), global_episode)
-        if time_step == 120:
-            self.tb_writer.add_image('fig_120/policy_distr', torchvision.utils.make_grid(pi_prob.reshape([1, grid, grid]).flip(1), normalize=True), global_episode)
-            self.tb_writer.add_image('fig_120/policy_distr_nomask', torchvision.utils.make_grid(pi_prob_nomask.reshape([1, grid, grid]).flip(1), normalize=True), global_episode)
-            self.tb_writer.add_image('fig_120/canvas', torchvision.utils.make_grid(canvas.reshape([1, grid, grid]).flip(1), normalize=True), global_episode)
-            self.tb_writer.add_image('fig_120/wire_mask', torchvision.utils.make_grid(wire_mask.reshape([1, grid, grid]).flip(1), normalize=True), global_episode)
-            self.tb_writer.add_image('fig_120/action_distr', torchvision.utils.make_grid(a_prob.reshape([1, grid, grid]).flip(1), normalize=True), global_episode)
 
         return action.item(), action_log_prob.item()
 
@@ -488,7 +301,7 @@ class Agent:
             adv = v_target - self.critic_net(s, t)
             adv = ((adv - adv.mean()) / (adv.std() + 1e-5))
 
-            distr, pi_prob, a_prob,pi_prob_nomask = self.actor_net(s, t, position_mask=s[:,2], wire_mask=s[:,1])
+            distr, pi_prob, a_prob, pi_prob_nomask = self.actor_net(s, t, position_mask=s[:,2], wire_mask=s[:,1])
             a_logp = distr.log_prob(a.squeeze()).unsqueeze(1)
 
 

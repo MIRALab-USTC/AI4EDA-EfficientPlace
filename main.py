@@ -1,3 +1,4 @@
+from math import log
 import torch
 import pickle
 import numpy as np
@@ -27,11 +28,21 @@ class SolutionPool:
                 "visit_time": 0,
                 "hpwl": 1e9,
                 "hist_hpwl": {},
-                "score": 0.0}
+                "score": 0.0
+            }
         )
         self.frontiers = [[]]
         self.frontiers_hist = [[]]
 
+    @property
+    def best_solution(self):
+        return self.sols[0]["placement"], self.sols[0]["solution"], self.sols[0]["hpwl"]
+    
+    @property
+    def depth_min_max(self):
+        depth = [len(x) for x in self.frontiers]
+        return min(depth), max(depth)
+    
     def update_sol(self, frontier_id, solution, hpwl, placement):
         if hpwl < self.best_hpwl_max:
             sol_record = {
@@ -50,12 +61,13 @@ class SolutionPool:
             node = self.tree.get_node(str(solution[:i]))
             if node:
                 node.data["visit_time"] += 1
-                node.data["score"] = - node.data["hpwl"] + \
-                    self.alpha * 1 / np.sqrt(node.data["visit_time"])
+                node.data["score"] = - node.data["hpwl"] + self.alpha * 1 / np.sqrt(node.data["visit_time"])
+                
                 if i < len(solution) - 1 and solution[:i+1] not in self.frontiers_hist:
                     node.data["hist_hpwl"][str(solution[i])] = hpwl.item() if str(
                         solution[i]) not in node.data["hist_hpwl"] else min(node.data["hist_hpwl"][str(solution[i])], hpwl.item())
                     node.data["hpwl"] = min(node.data["hpwl"], hpwl.item())
+                    
             if node is None:
                 self.tree.create_node(
                     tag=str(solution[i-1]),
@@ -68,14 +80,6 @@ class SolutionPool:
                         "hist_hpwl": {str(solution[i]): hpwl.item()},
                     }
                 )
-
-    def get_best_solution(self):
-        return self.sols[0]["placement"], self.sols[0]["solution"], self.sols[0]["hpwl"]
-
-    @property
-    def depth_min_max(self):
-        depth = [len(x) for x in self.frontiers]
-        return min(depth), max(depth)
 
     def update_frontiers(self):
         front_scores = [(self.tree.get_node(str(x)).data["score"], x)
@@ -122,9 +126,9 @@ class SolutionPool:
 class Trainer:
 
     def __init__(self, num_loops, num_episodes_in_loop, num_update_epochs, update_batch_size,
-                 num_macros_to_place, solution_pool_size, alpha, update_frontiers_begin, update_frontiers_freq,
-                 model_dir, solution_dir
-                 ):
+        num_macros_to_place, solution_pool_size, alpha, update_frontiers_begin, update_frontiers_freq,
+        model_dir, solution_dir
+    ):
 
         self.num_loops = num_loops
         self.num_episodes_in_loop = num_episodes_in_loop
@@ -183,7 +187,7 @@ class Trainer:
             if global_episode >= self.update_frontiers_begin and loop % self.update_frontiers_freq == 0:
                 self.solution_pool.update_frontiers()
 
-            placement, sol, hpwl = self.solution_pool.get_best_solution()
+            placement, sol, hpwl = self.solution_pool.best_solution
 
             logging.info(f"Current best HPWL = {hpwl}.")
             torch.save(agent.actor_net.state_dict(),
@@ -210,7 +214,7 @@ class Trainer:
                 # select the action from the solution
                 a, a_logp = sol[t], 0.0
             else:
-                a, a_logp = agent.select_action(s, t, global_episode)
+                a, a_logp = agent.select_action(s, t)
 
             s_, r, done, info = env.step(a)
             placement.append(a)
@@ -223,7 +227,7 @@ class Trainer:
                 score += r
 
                 t += 1
-            elif env.num_macros > self.num_macros_to_place:
+            if done and env.num_macros > self.num_macros_to_place:
                 # if the episode is done, place the remaining macros greedily
                 s_done, s__done, a_done = s, s_, a
                 s = s_
@@ -234,8 +238,7 @@ class Trainer:
                     hpwl += info["delta_hpwl"]
                     r += r_
                     if i == env.num_macros - self.num_macros_to_place - 1:
-                        replay_buffer.store(
-                            s_done, t, a_done, a_logp, r, s__done, t + 1, 1.0)
+                        replay_buffer.store(s_done, t, a_done, a_logp, r, s__done, t + 1, 1.0)
                         solution.append(a_done)
                     s = s_
                 score += r
@@ -254,12 +257,23 @@ def main(config: DictConfig):
     torch.manual_seed(config.seed)
     torch.cuda.manual_seed(config.seed)
     
+    # set cpu num
+    cpu_num = 10
+    os.environ['OMP_NUM_THREADS'] = str(cpu_num)
+    os.environ['OPENBLAS_NUM_THREADS'] = str(cpu_num)
+    os.environ['MKL_NUM_THREADS'] = str(cpu_num)
+    os.environ['VECLIB_MAXIMUM_THREADS'] = str(cpu_num)
+    os.environ['NUMEXPR_NUM_THREADS'] = str(cpu_num)
+    torch.set_num_threads(cpu_num)
+    
     # set device
     if(torch.cuda.is_available()): 
         device = torch.device(f'cuda:{config.cuda}')
         torch.cuda.empty_cache()
+        logging.info(f'Using GPU: {torch.cuda.get_device_name()}, cuda: {config.cuda}.')
     else:
         device = torch.device('cpu')
+        logging.info('Using CPU.')
     
     # set up tensorboard writer
     tb_writer = SummaryWriter(config.tb_dir)

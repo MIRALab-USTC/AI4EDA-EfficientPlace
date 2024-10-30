@@ -1,11 +1,9 @@
 import torch
 import logging
 import math
-import gym
-from gym import spaces
 from src.place_db import PlaceDB
 
-class Environment(gym.Env):
+class Environment:
     def __init__(self,
         benchmark,
         benchmark_dir,
@@ -24,26 +22,21 @@ class Environment(gym.Env):
         
         self.num_macros = placedb.node_cnt
         self.num_nets = placedb.net_cnt
+        self.macro_name_list = placedb.node_id_to_name
+        self.macros = [self.placedb.node_info[self.macro_name_list[i]]
+                       for i in range(self.num_macros)]
         
         self.num_macros_to_place = num_macros_to_place
         self.grid = grid
-        self.node_name_list = placedb.node_id_to_name
+        self.ratio = self.max_height / self.grid
         
-        self.action_space = spaces.Discrete(self.grid * self.grid)
-        self.state = torch.Tensor()
-        self.last_reward = 0
-
-        self.ratio = self.placedb.max_height / self.grid
         self.size_x = [max(1, math.ceil(self.placedb.node_info[node_name]
-                           ['x'] / self.ratio)) for node_name in self.node_name_list]
+                           ['x'] / self.ratio)) for node_name in self.macro_name_list]
         self.size_y = [max(1, math.ceil(self.placedb.node_info[node_name]
-                           ['y'] / self.ratio)) for node_name in self.node_name_list]
+                           ['y'] / self.ratio)) for node_name in self.macro_name_list]
 
         self.wire_mask_scale = wire_mask_scale
         self.reward_scale = reward_scale
-
-        self.macros = [self.placedb.node_info[self.node_name_list[i]]
-                       for i in range(self.num_macros)]
 
     def reset(self):
         self.t = 0
@@ -79,9 +72,8 @@ class Environment(gym.Env):
             canvas[pos_x: pos_x + size_x, max(0, pos_y + size_y - 1)] = 0.5
         canvas[pos_x, pos_y: pos_y + size_y] = 0.5
         if pos_x + size_x - 1 < self.grid:
-            canvas[max(0, pos_x + size_x-1), pos_y: pos_y + size_y] = 0.5
-        self.macro_pos[self.node_name_list[self.t]] = (
-            pos_x, pos_y, size_x, size_y)
+            canvas[max(0, pos_x + size_x - 1), pos_y: pos_y + size_y] = 0.5
+        self.macro_pos[self.macro_name_list[self.t]] = (pos_x, pos_y, size_x, size_y)
 
         # calculate the reward
         hpwl_increment = wire_mask[pos_x, pos_y] * self.wire_mask_scale
@@ -91,7 +83,7 @@ class Environment(gym.Env):
             reward = -1
             logging.info("INVALID ACTION.")
 
-        node_name = self.node_name_list[self.t]
+        node_name = self.macro_name_list[self.t]
         for net_name in self.placedb.node_to_net_dict[node_name]:
             pin_x = round((pos_x * self.ratio + self.placedb.node_info[node_name]['x'] / 2 +
                            self.placedb.net_info[net_name]["nodes"][node_name]["x_offset"]) / self.ratio)
@@ -173,20 +165,15 @@ class Environment(gym.Env):
                 start_y = self.net_bound_info[net_name]['min_y'] - delta_pin_y
                 end_y = self.net_bound_info[net_name]['max_y'] - delta_pin_y
 
-                wire_mask_x = torch.arange(
-                    self.grid, dtype=torch.float).unsqueeze(1).repeat(1, self.grid)
-                wire_mask_x[:max(start_x, 0)] = start_x - \
-                    wire_mask_x[:max(start_x, 0)]
+                wire_mask_x = torch.arange(self.grid, dtype=torch.float).unsqueeze(1).repeat(1, self.grid)
+                wire_mask_x[:max(start_x, 0)] = start_x - wire_mask_x[:max(start_x, 0)]
                 wire_mask_x[max(start_x, 0): max(end_x + 1, 0)] = 0.0
                 wire_mask_x[max(end_x + 1, 0):] = wire_mask_x[max(end_x + 1, 0):] - end_x
 
-                wire_mask_y = torch.arange(
-                    self.grid, dtype=torch.float).unsqueeze(0).repeat(self.grid, 1)
-                wire_mask_y[:, :max(start_y, 0)] = start_y - \
-                    wire_mask_y[:, :max(start_y, 0)]
+                wire_mask_y = torch.arange(self.grid, dtype=torch.float).unsqueeze(0).repeat(self.grid, 1)
+                wire_mask_y[:, :max(start_y, 0)] = start_y - wire_mask_y[:, :max(start_y, 0)]
                 wire_mask_y[:, max(start_y, 0): max(end_y + 1, 0)] = 0.0
-                wire_mask_y[:, max(end_y + 1, 0):] = wire_mask_y[:,
-                                                                 max(end_y + 1, 0):] - end_y
+                wire_mask_y[:, max(end_y + 1, 0):] = wire_mask_y[:, max(end_y + 1, 0):] - end_y
 
                 wire_mask += wire_mask_x + wire_mask_y
 
