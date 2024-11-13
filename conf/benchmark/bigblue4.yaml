@@ -1,6 +1,6 @@
-# conf/benchmark/adaptec1.yaml
+# conf/benchmark/bigblue2.yaml
 
-benchmark: adaptec1
+benchmark: bigblue4
 
 grid: 256
 num_macros_to_place: 128
@@ -14,8 +14,8 @@ env:
   _target_: src.Environment
   benchmark: ${benchmark}
   benchmark_dir: ./benchmarks/ispd2005/${benchmark}
-  reward_scale: 1000.0
-  wire_mask_scale: 10000.0
+  reward_scale: 1000000.0
+  wire_mask_scale: 1000000.0
   num_macros_to_place: 128
   grid: ${grid}
   rank_mode: 1
@@ -26,23 +26,23 @@ agent:
   clip_epsilon: 0.2
   lamda: 0.98
   entropy_coef: 0.001
-  lr_actor: 0.0004
+  lr_actor: 0.0003
   lr_critic: 0.001
-  actor_lr_anneal_rate: 0.9999
-  critic_lr_anneal_rate: 0.9999
+  actor_lr_anneal_rate: 0.9997
+  critic_lr_anneal_rate: 0.9997
   num_macros_to_place: ${num_macros_to_place}
   grid: ${grid}
-  gamma: 1.0
+  gamma: 0.999
 
 trainer:
   _target_: main.Trainer
   num_macros_to_place: ${num_macros_to_place}
-  num_loops: 1000
+  num_loops: 240
   num_episodes_in_loop: 5
   update_batch_size: 128
   num_update_epochs: 10
   solution_pool_size: 5
-  update_frontiers_freq: 2
+  update_frontiers_freq: 4
   update_frontiers_begin: 200
   alpha: 0.1
   model_dir: ${model_dir}
